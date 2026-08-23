@@ -1,7 +1,10 @@
 import { getDatabase } from '@/database/db';
 import { completeSession, createSession, logSet } from '@/database/queries/sessions';
 import { getSplitExercises } from '@/database/queries/splits';
+import { useSettingsStore } from '@/store/settings-store';
 import type { ActiveExercise, ActiveSet, ActiveWorkout } from '@/types';
+import * as Haptics from 'expo-haptics';
+import { Platform } from 'react-native';
 import { create } from 'zustand';
 
 interface WorkoutStore {
@@ -26,6 +29,20 @@ interface WorkoutStore {
 
   // Workout manipulation (flexible mode)
   updateSetTarget: (exerciseIndex: number, sets: number, reps: number) => void;
+}
+
+/** Fire haptic feedback, gated by user setting, web-safe. */
+function fireTimerEndFeedback() {
+  if (Platform.OS === 'web') return;
+  const { vibrationEnabled } = useSettingsStore.getState();
+  if (!vibrationEnabled) return;
+  // Three pulses — unmistakable rest-end signal
+  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+    .then(() => new Promise<void>((r) => setTimeout(r, 200)))
+    .then(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success))
+    .then(() => new Promise<void>((r) => setTimeout(r, 200)))
+    .then(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success))
+    .catch(() => {});
 }
 
 export const useWorkoutStore = create<WorkoutStore>((set, get) => ({
@@ -88,9 +105,12 @@ export const useWorkoutStore = create<WorkoutStore>((set, get) => ({
       return { ...ex, sets: updatedSets, completed: allSetsCompleted };
     });
 
-    set({
-      activeWorkout: { ...activeWorkout, exercises: updatedExercises },
-    });
+    set({ activeWorkout: { ...activeWorkout, exercises: updatedExercises } });
+
+    // Tap feedback when marking a set done
+    if (Platform.OS !== 'web' && useSettingsStore.getState().vibrationEnabled) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    }
 
     // Start rest timer
     const restSeconds = exercise.splitExercise.restSeconds;
@@ -100,7 +120,6 @@ export const useWorkoutStore = create<WorkoutStore>((set, get) => ({
   completeCurrentExercise: () => {
     const { activeWorkout } = get();
     if (!activeWorkout) return;
-
     const updatedExercises = activeWorkout.exercises.map((ex, idx) =>
       idx === activeWorkout.currentExerciseIndex ? { ...ex, completed: true } : ex
     );
@@ -124,7 +143,6 @@ export const useWorkoutStore = create<WorkoutStore>((set, get) => ({
   finishWorkout: async () => {
     const { activeWorkout, stopRestTimer } = get();
     if (!activeWorkout) return null;
-
     stopRestTimer();
     const db = await getDatabase();
     await completeSession(db, activeWorkout.sessionId);
@@ -134,20 +152,19 @@ export const useWorkoutStore = create<WorkoutStore>((set, get) => ({
   },
 
   abandonWorkout: () => {
-    const { stopRestTimer } = get();
-    stopRestTimer();
+    get().stopRestTimer();
     set({ activeWorkout: null });
   },
 
   startRestTimer: (seconds) => {
-    const { stopRestTimer } = get();
-    stopRestTimer();
-
+    get().stopRestTimer();
     set({ isRestTimerActive: true, restSecondsRemaining: seconds });
 
     const interval = setInterval(() => {
       const { restSecondsRemaining } = get();
       if (restSecondsRemaining <= 1) {
+        // Timer done — fire feedback before clearing
+        fireTimerEndFeedback();
         get().stopRestTimer();
       } else {
         set({ restSecondsRemaining: restSecondsRemaining - 1 });
@@ -169,7 +186,6 @@ export const useWorkoutStore = create<WorkoutStore>((set, get) => ({
 
     const updatedExercises = activeWorkout.exercises.map((ex, idx) => {
       if (idx !== exerciseIndex) return ex;
-      const currentSets = ex.sets.filter((s) => s.completed);
       const newSets: ActiveSet[] = Array.from({ length: sets }, (_, i) => {
         const existing = ex.sets[i];
         return existing ?? {
