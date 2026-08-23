@@ -2,15 +2,15 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { FontSize, FontWeight, MaxContentWidth, Radius, Spacing } from '@/constants/theme';
 import { getDatabase } from '@/database/db';
-import { getAllSessions } from '@/database/queries/sessions';
-import { getAllSplits } from '@/database/queries/splits';
+import { getAllSessions, getNextWorkoutDay } from '@/database/queries/sessions';
+import { getAllSplits, getSplitDayCount } from '@/database/queries/splits';
 import { useTheme } from '@/hooks/use-theme';
 import { useSettingsStore } from '@/store/settings-store';
 import type { Split, WorkoutSession } from '@/types';
 import { formatDate, formatDuration } from '@/utils/format';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Calendar, ChevronRight, Dumbbell, TrendingUp } from 'lucide-react-native';
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
     Pressable,
     ScrollView,
@@ -26,10 +26,15 @@ export default function HomeScreen() {
   const [splits, setSplits] = useState<Split[]>([]);
   const [recentSessions, setRecentSessions] = useState<WorkoutSession[]>([]);
   const [activeSplitId, setActiveSplitId] = useState<string | null>(null);
+  const [nextDay, setNextDay] = useState(1);
+  const [totalDays, setTotalDays] = useState(1);
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  // Reload every time the tab comes into focus so new sessions reflect immediately
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [])
+  );
 
   async function loadData() {
     const db = await getDatabase();
@@ -39,10 +44,24 @@ export default function HomeScreen() {
     ]);
     setSplits(allSplits);
     setRecentSessions(sessions.slice(0, 3));
-    // Set the first split as active by default if none chosen
-    if (allSplits.length > 0 && !activeSplitId) {
-      setActiveSplitId(allSplits[0].id);
+    if (allSplits.length > 0) {
+      const firstId = activeSplitId ?? allSplits[0].id;
+      if (!activeSplitId) setActiveSplitId(firstId);
+      await updateDayForSplit(firstId, db);
     }
+  }
+
+  async function updateDayForSplit(splitId: string, dbArg?: Awaited<ReturnType<typeof getDatabase>>) {
+    const db = dbArg ?? await getDatabase();
+    const days = await getSplitDayCount(db, splitId);
+    setTotalDays(days);
+    const next = await getNextWorkoutDay(db, splitId, days);
+    setNextDay(next);
+  }
+
+  async function handleSelectSplit(splitId: string) {
+    setActiveSplitId(splitId);
+    await updateDayForSplit(splitId);
   }
 
   const activeSplit = splits.find((s) => s.id === activeSplitId);
@@ -51,7 +70,7 @@ export default function HomeScreen() {
     if (!activeSplitId) return;
     router.push({
       pathname: '/workout/warmup' as any,
-      params: { splitId: activeSplitId, day: '1' },
+      params: { splitId: activeSplitId, day: String(nextDay) },
     });
   }
 
@@ -86,6 +105,11 @@ export default function HomeScreen() {
                   <Text style={[styles.heroSplit, { color: colors.text }]} numberOfLines={1}>
                     {activeSplit?.name ?? 'No split selected'}
                   </Text>
+                  {totalDays > 1 && activeSplit && (
+                    <Text style={[styles.heroDay, { color: colors.primary }]}>
+                      Day {nextDay} of {totalDays}
+                    </Text>
+                  )}
                 </View>
               </View>
 
@@ -105,7 +129,7 @@ export default function HomeScreen() {
               {splits.map((split) => (
                 <Pressable
                   key={split.id}
-                  onPress={() => setActiveSplitId(split.id)}
+                  onPress={() => handleSelectSplit(split.id)}
                   style={({ pressed }) => [
                     styles.splitRow,
                     {
@@ -257,6 +281,7 @@ const styles = StyleSheet.create({
   heroText: { flex: 1 },
   heroLabel: { fontSize: FontSize.sm, fontWeight: FontWeight.medium },
   heroSplit: { fontSize: FontSize.xl, fontWeight: FontWeight.bold, marginTop: 2 },
+  heroDay: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, marginTop: 2 },
   section: { gap: Spacing.three },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   sectionTitle: { fontSize: FontSize.lg, fontWeight: FontWeight.bold },
