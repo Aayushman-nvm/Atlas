@@ -49,7 +49,6 @@ export async function completeSession(
     [sessionId]
   );
   if (!session) return;
-
   const now = Date.now();
   const duration = Math.round((now - session.start_time) / 1000);
   await db.runAsync(
@@ -135,6 +134,13 @@ export async function getSessionById(
   return row ? rowToSession(row) : null;
 }
 
+export async function deleteSession(db: SQLiteDatabase, sessionId: string): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(`DELETE FROM workout_sets WHERE session_id = ?`, [sessionId]);
+    await db.runAsync(`DELETE FROM workout_sessions WHERE id = ?`, [sessionId]);
+  });
+}
+
 export async function getSessionTotalVolume(
   db: SQLiteDatabase,
   sessionId: string
@@ -144,4 +150,32 @@ export async function getSessionTotalVolume(
     [sessionId]
   );
   return row?.total ?? 0;
+}
+
+/**
+ * Returns the next training day for a split, based on the last completed session.
+ * Cycles through available days. Returns 1 if no history.
+ */
+export async function getNextWorkoutDay(
+  db: SQLiteDatabase,
+  splitId: string,
+  totalDays: number
+): Promise<number> {
+  if (totalDays <= 1) return 1;
+  const row = await db.getFirstAsync<{ split_id: string; start_time: number }>(
+    `SELECT split_id, start_time FROM workout_sessions
+     WHERE split_id = ? AND end_time IS NOT NULL
+     ORDER BY start_time DESC LIMIT 1`,
+    [splitId]
+  );
+  if (!row) return 1;
+
+  // Count how many completed sessions exist for this split
+  const countRow = await db.getFirstAsync<{ cnt: number }>(
+    `SELECT COUNT(*) as cnt FROM workout_sessions WHERE split_id = ? AND end_time IS NOT NULL`,
+    [splitId]
+  );
+  const completedCount = countRow?.cnt ?? 0;
+  // Next day cycles: session 1 → day 1, session 2 → day 2, etc.
+  return (completedCount % totalDays) + 1;
 }
