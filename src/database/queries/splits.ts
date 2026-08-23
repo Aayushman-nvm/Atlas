@@ -95,7 +95,12 @@ export async function createSplit(
 }
 
 export async function deleteSplit(db: SQLiteDatabase, id: string): Promise<void> {
-  await db.runAsync(`DELETE FROM splits WHERE id = ? AND is_preset = 0`, [id]);
+  await db.withTransactionAsync(async () => {
+    // Explicitly remove child rows first — foreign key cascade isn't
+    // guaranteed when PRAGMA is set via execAsync in the same connection init.
+    await db.runAsync(`DELETE FROM split_exercises WHERE split_id = ?`, [id]);
+    await db.runAsync(`DELETE FROM splits WHERE id = ? AND is_preset = 0`, [id]);
+  });
 }
 
 export async function addExerciseToSplit(
