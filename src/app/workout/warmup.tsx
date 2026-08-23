@@ -84,7 +84,7 @@ export default function WarmupScreen() {
   async function proceedToWorkout() {
     if (!splitId) return;
     await startWorkout(splitId, parseInt(day ?? '1', 10));
-    router.replace('/workout/index');
+    router.replace('/workout' as any);
   }
 
   const current = warmups[currentIndex];
