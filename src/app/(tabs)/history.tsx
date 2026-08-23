@@ -1,21 +1,23 @@
 import { Card } from '@/components/ui/card';
+import { ConfirmModal } from '@/components/ui/modal';
 import {
     FontSize, FontWeight, MaxContentWidth, Radius, Spacing,
 } from '@/constants/theme';
 import { getDatabase } from '@/database/db';
-import { getAllSessions, getSessionSets } from '@/database/queries/sessions';
+import { deleteSession, getAllSessions, getSessionSets } from '@/database/queries/sessions';
 import { useTheme } from '@/hooks/use-theme';
 import { useSettingsStore } from '@/store/settings-store';
 import type { WorkoutSession } from '@/types';
 import { formatDate, formatDuration, formatWeight } from '@/utils/format';
 import { useFocusEffect } from 'expo-router';
-import { Calendar, Clock, Dumbbell, Zap } from 'lucide-react-native';
+import { Calendar, Clock, Dumbbell, Trash2, Zap } from 'lucide-react-native';
 import React, { useCallback, useState } from 'react';
 import {
     FlatList,
+    Pressable,
     StyleSheet,
     Text,
-    View
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -30,6 +32,7 @@ export default function HistoryScreen() {
   const { units } = useSettingsStore();
   const [sessions, setSessions] = useState<SessionWithStats[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -47,17 +50,19 @@ export default function HistoryScreen() {
         const sets = await getSessionSets(db, session.id);
         const totalVolume = sets.reduce((sum, s) => sum + s.weight * s.repsCompleted, 0);
         const exerciseCount = new Set(sets.map((s) => s.exerciseId)).size;
-        return {
-          ...session,
-          totalSets: sets.length,
-          totalVolume,
-          exerciseCount,
-        };
+        return { ...session, totalSets: sets.length, totalVolume, exerciseCount };
       })
     );
 
     setSessions(withStats);
     setLoading(false);
+  }
+
+  async function handleDelete(sessionId: string) {
+    const db = await getDatabase();
+    await deleteSession(db, sessionId);
+    setDeleteTarget(null);
+    loadHistory();
   }
 
   if (loading) {
@@ -72,9 +77,7 @@ export default function HistoryScreen() {
     return (
       <View style={[styles.screen, { backgroundColor: colors.background }]}>
         <SafeAreaView style={styles.safe} edges={['top']}>
-          <Text style={[styles.title, { color: colors.text, padding: Spacing.five, paddingTop: Spacing.seven }]}>
-            History
-          </Text>
+          <Text style={[styles.title, { color: colors.text }]}>History</Text>
           <View style={styles.emptyState}>
             <Calendar size={56} color={colors.border} />
             <Text style={[styles.emptyTitle, { color: colors.text }]}>No workouts yet</Text>
@@ -97,10 +100,25 @@ export default function HistoryScreen() {
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           renderItem={({ item }) => (
-            <SessionCard session={item} units={units} />
+            <SessionCard
+              session={item}
+              units={units}
+              onDelete={() => setDeleteTarget(item.id)}
+            />
           )}
         />
       </SafeAreaView>
+
+      <ConfirmModal
+        visible={!!deleteTarget}
+        title="Delete Workout?"
+        message="This will permanently remove this workout and all its logged sets."
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        destructive
+        onConfirm={() => deleteTarget && handleDelete(deleteTarget)}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </View>
   );
 }
@@ -108,25 +126,37 @@ export default function HistoryScreen() {
 function SessionCard({
   session,
   units,
+  onDelete,
 }: {
   session: SessionWithStats;
   units: 'kg' | 'lb';
+  onDelete: () => void;
 }) {
   const colors = useTheme();
 
   return (
     <Card style={styles.sessionCard} padding={Spacing.four}>
       <View style={styles.sessionHeader}>
-        <Text style={[styles.sessionDate, { color: colors.text }]}>
-          {formatDate(session.startTime)}
-        </Text>
-        {session.split?.name && (
-          <View style={[styles.splitBadge, { backgroundColor: colors.primaryMuted }]}>
-            <Text style={[styles.splitBadgeText, { color: colors.primary }]}>
-              {session.split.name}
-            </Text>
-          </View>
-        )}
+        <View style={styles.sessionHeaderLeft}>
+          <Text style={[styles.sessionDate, { color: colors.text }]}>
+            {formatDate(session.startTime)}
+          </Text>
+          {session.split?.name && (
+            <View style={[styles.splitBadge, { backgroundColor: colors.primaryMuted }]}>
+              <Text style={[styles.splitBadgeText, { color: colors.primary }]}>
+                {session.split.name}
+              </Text>
+            </View>
+          )}
+        </View>
+        <Pressable
+          onPress={onDelete}
+          style={({ pressed }) => [styles.deleteBtn, { opacity: pressed ? 0.6 : 1 }]}
+          accessibilityLabel="Delete workout"
+          hitSlop={8}
+        >
+          <Trash2 size={16} color={colors.danger} />
+        </Pressable>
       </View>
 
       <View style={styles.statsRow}>
@@ -194,8 +224,16 @@ const styles = StyleSheet.create({
   sessionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: Spacing.three,
+  },
+  sessionHeaderLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+    marginRight: Spacing.three,
   },
   sessionDate: { fontSize: FontSize.base, fontWeight: FontWeight.bold },
   splitBadge: {
@@ -204,6 +242,9 @@ const styles = StyleSheet.create({
     borderRadius: Radius.full,
   },
   splitBadgeText: { fontSize: FontSize.xs, fontWeight: FontWeight.semibold },
+  deleteBtn: {
+    padding: Spacing.one,
+  },
   statsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
