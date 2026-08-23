@@ -719,3 +719,54 @@ Whenever the user opens the app, they should never wonder:
 "What do I do now?"
 
 The app should always present exactly one clear next action until the workout is complete.
+
+## Responsive UI
+
+Atlas is a **mobile-first React Native app built with Expo**, with **React Native Web** support.
+
+The UI must adapt to:
+
+- Small and large phones
+- Tablets
+- Different screen sizes and aspect ratios
+- iOS and Android
+- Web browsers
+
+### Requirements
+
+- Never rely on fixed screen dimensions.
+- Use responsive Flexbox layouts.
+- Use safe-area handling for notches, status bars, and navigation areas.
+- Use adaptive spacing and sizing where necessary.
+- Prevent content, buttons, modals, and bottom sheets from overflowing.
+- Ensure touch targets are large and comfortable.
+- Handle keyboard and text-input layouts correctly.
+- Support scrolling where content cannot fit.
+- Test layouts across multiple phone and tablet sizes.
+- Support mouse, keyboard, and appropriate focus states on Web.
+
+### Platform Layout
+
+The experience remains the same, but the layout can adapt to available space.
+
+**Phone**
+- Full-screen, focused workout experience.
+- Current exercise is the primary focus.
+- Minimal secondary information.
+
+**Tablet**
+- Use additional available space for workout context and progress.
+- Maintain focus on the current exercise.
+
+**Web**
+- Use wider layouts with sensible maximum content widths.
+- Support mouse and keyboard interaction.
+- Do not simply stretch the mobile UI across the entire browser window.
+
+### Core Rule
+
+> **The UI adapts to the screen, but the workflow never changes.**
+
+Regardless of device or screen size, the user should always know:
+
+**"What do I do next?"**
