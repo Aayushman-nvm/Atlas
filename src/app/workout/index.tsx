@@ -3,12 +3,12 @@ import { Card } from '@/components/ui/card';
 import { ConfirmModal } from '@/components/ui/modal';
 import { NumberInput } from '@/components/ui/number-input';
 import {
-    FontSize,
-    FontWeight,
-    MaxContentWidth,
-    Radius,
-    Spacing,
-    TouchTarget,
+  FontSize,
+  FontWeight,
+  MaxContentWidth,
+  Radius,
+  Spacing,
+  TouchTarget,
 } from '@/constants/theme';
 import { getDatabase } from '@/database/db';
 import { getLastPerformance } from '@/database/queries/sessions';
@@ -19,27 +19,28 @@ import { formatElapsedTime, formatRestTimer, formatWeight } from '@/utils/format
 import { router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import {
-    CheckCircle2,
-    ChevronLeft,
-    ChevronRight,
-    Circle,
-    ExternalLink,
-    LayoutList,
-    Timer,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Circle,
+  ExternalLink,
+  LayoutList,
+  Timer,
 } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
 import {
-    Pressable,
-    Modal as RNModal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  Pressable,
+  Modal as RNModal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function WorkoutScreen() {
   const colors = useTheme();
+  const insets = useSafeAreaInsets();
   const {
     activeWorkout,
     isRestTimerActive,
@@ -94,9 +95,14 @@ export default function WorkoutScreen() {
 
   if (!activeWorkout || !currentEntry || !exercise) return null;
 
-  const totalExercises = activeWorkout.exercises.length;
+  // These aliases are guaranteed to be defined after the guard above.
+  const workout = activeWorkout;
+  const entry = currentEntry;
+  const currentExercise = exercise;
+
+  const totalExercises = workout.exercises.length;
   const progress = (exerciseIdx + 1) / totalExercises;
-  const nextEntry = activeWorkout.exercises[exerciseIdx + 1];
+  const nextEntry = workout.exercises[exerciseIdx + 1];
   const canJump = strictMode === 'flexible';
   const canEdit = strictMode !== 'super_strict';
 
@@ -105,12 +111,26 @@ export default function WorkoutScreen() {
   }
 
   function handleNextExercise() {
-    if (strictMode === 'flexible') {
+    if (strictMode === 'super_strict') {
+      return;
+    }
+
+    if (strictMode === 'strict') {
+      if (!entry.completed) {
+        setShowSkipModal(true);
+      } else {
+        nextExercise();
+      }
+      return;
+    }
+
+    if (!entry.completed) {
       setShowSkipModal(true);
     } else {
       nextExercise();
     }
   }
+
 
   async function handleFinish() {
     const sessionId = await finishWorkout();
@@ -127,7 +147,7 @@ export default function WorkoutScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+      <SafeAreaView style={styles.safe} edges={['top']}>
         {/* Top bar */}
         <View style={[styles.topBar, { borderBottomColor: colors.border }]}>
           <Pressable
@@ -215,8 +235,8 @@ export default function WorkoutScreen() {
                             color: isActive
                               ? colors.primary
                               : entry.completed
-                              ? colors.textTertiary
-                              : colors.text,
+                                ? colors.textTertiary
+                                : colors.text,
                             fontWeight: isActive
                               ? FontWeight.bold
                               : FontWeight.medium,
@@ -411,29 +431,38 @@ export default function WorkoutScreen() {
 
         {/* Bottom CTA */}
         {!showOverview && (
-          <View style={[styles.footer, { borderTopColor: colors.border }]}>
+          <View style={[styles.footer, { borderTopColor: colors.border, paddingBottom: Math.max(insets.bottom, Spacing.five) }]}>
             {exerciseIdx < totalExercises - 1 ? (
-              <Button
-                label={
-                  currentEntry.completed
-                    ? 'Next Exercise'
-                    : 'Skip Exercise'
-                }
-                variant={currentEntry.completed ? 'primary' : 'secondary'}
-                size="lg"
-                fullWidth
-                onPress={
-                  currentEntry.completed
-                    ? () => nextExercise()
-                    : handleNextExercise
-                }
-                rightIcon={
-                  <ChevronRight
-                    size={20}
-                    color={currentEntry.completed ? '#FFF' : colors.text}
-                  />
-                }
-              />
+              currentEntry.completed ? (
+                // Exercise done → always show Next
+                <Button
+                  label="Next Exercise"
+                  variant="primary"
+                  size="lg"
+                  fullWidth
+                  onPress={() => nextExercise()}
+                  rightIcon={<ChevronRight size={20} color="#FFF" />}
+                />
+              ) : strictMode === 'super_strict' ? (
+                // Super strict: no skip, just an informational disabled button
+                <Button
+                  label="Complete all sets to continue"
+                  variant="secondary"
+                  size="lg"
+                  fullWidth
+                  disabled
+                />
+              ) : (
+                // flexible / strict: skip with confirmation
+                <Button
+                  label="Skip Exercise"
+                  variant="secondary"
+                  size="lg"
+                  fullWidth
+                  onPress={handleNextExercise}
+                  rightIcon={<ChevronRight size={20} color={colors.text} />}
+                />
+              )
             ) : (
               <Button
                 label="Finish Workout"
@@ -457,7 +486,7 @@ export default function WorkoutScreen() {
         onConfirm={() => {
           setShowAbandonModal(false);
           abandonWorkout();
-          router.replace('/(tabs)');
+          router.replace('/' as any);
         }}
         onCancel={() => setShowAbandonModal(false)}
       />
@@ -825,7 +854,8 @@ const styles = StyleSheet.create({
   nextName: { fontSize: FontSize.lg, fontWeight: FontWeight.bold },
   nextMeta: { fontSize: FontSize.sm },
   footer: {
-    padding: Spacing.five,
+    paddingHorizontal: Spacing.five,
+    paddingTop: Spacing.five,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
 });
